@@ -1,97 +1,76 @@
-> ℹ️ **Sobre este repositório:** `newelog-service-template` é o modelo-base dos microsserviços do NEWELOG (Java 21 + Spring Boot, Maven Wrapper, Dockerfile e CI do GitHub Actions). Para criar um serviço novo, use **"Use this template"** no GitHub, preencha o README abaixo e apague este aviso. Serviços já criados a partir dele: [auth](https://github.com/Koitech-Log/newelog-auth-service), [motoristas](https://github.com/Koitech-Log/newelog-motoristas-service) e [manifesto](https://github.com/Koitech-Log/newelog-manifesto-service). Visão geral do projeto no [repositório principal](https://github.com/Koitech-Log/Koitech-Log-3DSM-Newelog).
+# NEWELOG — Ranking Service
 
-# [Nome do Projeto] — [Módulo / Camada, ex: Backend / API]
+Serviço criado do template da Koitech-Log para as tasks US17-KOI146, US17-KOI147 e US17-KOI151.
 
-> Projeto Integrador 3º Semestre · DSM · FATEC São José dos Campos  
-> **Cliente:** NEWE Logística Integrada  
-> **Repositório principal:** [Nome/Link do Repositório Principal]
+## Execução
 
----
+Java 17+ (Docker e CI usam 21). Spring Boot 3.5.16, alinhado ao serviço de motoristas.
+Configure as variáveis no terminal; o Spring não carrega .env automaticamente.
 
-## 📖 Sobre
+PowerShell:
 
-[Descreva brevemente o propósito deste microserviço, qual problema ele resolve dentro do sistema e qual o seu papel na arquitetura geral.]
-
----
-
-## 🛠️ Tecnologias
-
-| Tecnologia | Versão | Uso |
-| :--- | :--- | :--- |
-| `[Tecnologia 1]` | `[Versão]` | `[Ex: Framework principal]` |
-| `[Tecnologia 2]` | `[Versão]` | `[Ex: Banco de dados / ORM]` |
-| `[Tecnologia 3]` | `[Versão]` | `[Ex: Gerenciador de dependências]` |
-
----
-
-## ⚙️ Pré-requisitos
-
-* `[Ferramenta 1]` (ex: Node.js 18+ / Java 17+ / Python 3.10+)
-* `[Ferramenta 2]` (ex: npm / Maven / Pip)
-* `[Dependência externa, ex: Banco de dados PostgreSQL rodando localmente ou via Docker]`
-
----
-
-## 🚀 Como executar
-
-```bash
-# 1. Clone o repositório
-git clone [URL_DO_REPOSITORIO]
-cd [NOME_DA_PASTA]
-
-# 2. Instale as dependências / Configure o ambiente
-[comando de instalação, ex: npm install / mvn clean install]
-
-# 3. Configure as variáveis de ambiente (crie um arquivo .env na raiz)
-[NOME_DA_VARIAVEL]=[VALOR_EXEMPLO]
-
-# 4. Inicie o serviço
-[comando para rodar, ex: npm run dev / ./mvnw spring-boot:run]
+```powershell
+$env:JWT_SECRET = '<mesmo segredo do auth-service, mínimo 32 bytes>'
+$env:MOTORISTAS_SERVICE_URL = 'http://localhost:8080'
+.\mvnw.cmd spring-boot:run
 ```
 
-Acesse: `[URL de acesso, ex: http://localhost:8080]`
+Porta padrão: 8083. Health público: GET /actuator/health.
+Não tem banco próprio nem acessa diretamente o banco de outro serviço.
 
----
+## API
 
-## 💻 Outros comandos úteis
+GET /ranking?ano=2026&mes=8&tipo=motoristas&busca=nome
+Alias: /api/ranking. Authorization: Bearer JWT do auth-service, somente GESTOR.
 
-```bash
-# Build de produção / Empacotamento
-[comando de build]
+- ano: 1–9999; mes: 1–12; obrigatórios.
+- tipo: motoristas (padrão) ou veiculos.
+- busca opcional: nome ou CPF com/sem formatação; também aceita placa.
+- Resposta: ano, mes, tipo, criterioOrdenacao e dados.
+- Cada item: posicao, motoristaId, motorista, veiculo, quantidadeViagens,
+  freteTotal, custoTotal, resultado, distanciaKm e destinos.
+- Na visão de veículos, motoristaId e motorista são nulos; veiculo identifica a placa.
+- resultado = soma dos fretes menos soma dos pedágios.
+- Ordem inicial por resultado decrescente, viagens decrescentes, nome/placa e ID.
+- A posição é definida ANTES da busca e não muda quando se filtra.
+- Mês sem viagens e busca sem resultado retornam dados: [] (HTTP 200).
+- Participantes sem viagens no mês não entram; viagens sem placa não geram veículo fictício.
+- 400: parâmetros inválidos. 401/403: autenticação/permissão.
+- 502: erro ou resposta inválida do serviço de motoristas. 503: falha de conexão/timeout.
+- Uma falha em qualquer detalhe interrompe a resposta inteira; não é devolvido ranking parcial.
 
-# Executar testes unitários / integrados
-[comando de testes]
+## Origem e limites dos dados
 
-# Verificar formatação / Lint
-[comando de lint]
+1. Consulta GET /api/dashboard/rentabilidade-media?ano=...&mes=... no motoristas-service.
+2. Busca GET /api/motoristas/{id} somente para os participantes encontrados.
+3. Filtra as viagens do mês, agrega os valores e aplica a busca depois de definir as posições.
+
+São 1 + N chamadas para N participantes, sem cache; os timeouts são por chamada.
+Mudanças na fonte durante as chamadas não têm garantia de snapshot transacional.
+O JWT do solicitante é repassado para a fonte, sem credenciais próprias.
+
+A base atual não possui quilometragem: distanciaKm é null, nunca um zero inventado.
+Os destinos são os valores registrados na fonte, que pode usar "Não informado".
+A placa vem do cadastro ATUAL do motorista; a API não garante histórico por veículo.
+Não altera dados nem regras de importação/duplicidade de nenhum serviço.
+
+Não calcula pontuação ou valorização de rotas. criterioOrdenacao informa explicitamente
+RESULTADO_FINANCEIRO; a integração da pontuação pertence à KOI-153.
+O frontend e suas telas não fazem parte destas três tasks.
+
+## Verificação e fluxo
+
+```powershell
+.\mvnw.cmd clean verify
 ```
 
----
+Testes de integração carregam a aplicação Spring com MockMvc e MockRestServiceServer,
+com JWT assinado e validação real. Exercitam controller, segurança, cliente REST,
+desserialização e agregação, sem abrir portas nem depender de banco ou ambiente externo.
+Não substituem uma verificação com os dois serviços em execução.
 
-## 📂 Estrutura do projeto
-
-```text
-[nome-do-repositorio]/
-├── [pasta-1]/          # Descrição do diretório
-├── [pasta-2]/          # Descrição do diretório
-└── README.md
-```
-
----
-
-## 🔐 Variáveis de ambiente
-
-Crie um arquivo `.env` na raiz do projeto contendo as seguintes chaves:
-
-```env
-[CHAVE_1]=[valor_exemplo]
-[CHAVE_2]=[valor_exemplo]
-```
-
----
-
-## 🔗 Endpoints / Módulos Principais
-
-| Rota / Endpoint | Método | Descrição | Perfil / Acesso |
-| :--- | :--- | :--- | :--- |
-| `[ex: /api/v1/recurso]` | `[GET/POST]` | `[Descrição da funcionalidade]` | `[Ex: Autenticado / Admin]` |
+Branches: main → develop → feature-ranking. PR de feature-ranking para develop.
+Commits devem seguir o Jira, por exemplo:
+US17-KOI146 feat: consultar dados mensais da frota
+US17-KOI147 feat: disponibilizar endpoint de ranking
+US17-KOI151 test: validar integração do ranking
