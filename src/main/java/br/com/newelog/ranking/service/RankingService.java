@@ -75,7 +75,8 @@ public class RankingService {
             if (encontrou) items.add(new Item(i + 1, g.id, g.nome, g.veiculo, g.viagens,
                 g.frete, g.custo, g.resultado(), null, List.copyOf(g.destinos)));
         }
-        return new RankingResponse(ano, mes, tipo, "RESULTADO_FINANCEIRO", List.copyOf(items));
+        // totalParticipantes conta o mês/tipo inteiro, antes da busca.
+        return new RankingResponse(ano, mes, tipo, "RESULTADO_FINANCEIRO", ordenados.size(), List.copyOf(items));
     }
 
     private static String normalizar(String s) {

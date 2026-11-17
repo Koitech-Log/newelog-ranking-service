@@ -512,6 +512,173 @@ class RankingIntegrationTest {
         }
     }
 
+    // --- KOI-148: ordenação e desempate (CA148-*) ---
+
+    @Test
+    void nomeOrdenaSemDiferenciarAcentoNemMaiuscula() throws Exception {
+        participantes(1, 2, 3);
+        String[] nomes = {"bruno", "Álvaro", "Carla"};
+        for (int id = 1; id <= 3; id++) bodies.put("/api/motoristas/" + id,
+            motorista(id, nomes[id - 1], "111", "ABC1D23", viagem("2026-08-01", "Santos", "100", "0")));
+        var items = dados("/ranking?ano=2026&mes=8");
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Álvaro", "bruno", "Carla");
+        assertThat(posicoes(items)).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void visaoVeiculosDesempataPorViagensEDepoisPorPlaca() throws Exception {
+        participantes(1, 2, 3);
+        bodies.put("/api/motoristas/1", motorista(1, "Ana", "111", "ZZZ9Z99",
+            viagem("2026-08-01", "Santos", "100", "0")));
+        bodies.put("/api/motoristas/2", motorista(2, "Bruno", "222", "aaa-1a11",
+            viagem("2026-08-01", "Santos", "100", "0")));
+        bodies.put("/api/motoristas/3", motorista(3, "Clara", "333", "MMM1M11",
+            viagem("2026-08-01", "Santos", "50", "0") + "," + viagem("2026-08-02", "Santos", "50", "0")));
+        var json = raiz("/ranking?ano=2026&mes=8&tipo=veiculos");
+        assertThat(json.path("criterioOrdenacao").asText()).isEqualTo("RESULTADO_FINANCEIRO");
+        assertThat(json.path("tipo").asText()).isEqualTo("veiculos");
+        var items = json.path("dados");
+        assertThat(items.findValuesAsText("veiculo")).containsExactly("MMM1M11", "AAA1A11", "ZZZ9Z99");
+        assertThat(posicoes(items)).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void empateTotalTemPosicoesUnicasEOrdemRepetivel() throws Exception {
+        participantes(5, 3, 1, 4, 2);
+        for (int id = 1; id <= 5; id++) bodies.put("/api/motoristas/" + id,
+            motorista(id, "Mesmo Nome", "111", "ABC1D23", viagem("2026-08-01", "Santos", "100", "0")));
+        var primeira = dados("/ranking?ano=2026&mes=8");
+        assertThat(posicoes(primeira)).containsExactly(1, 2, 3, 4, 5);
+        assertThat(primeira.findValues("motoristaId").stream().map(JsonNode::asInt).toList())
+            .containsExactly(1, 2, 3, 4, 5);
+        assertThat(dados("/ranking?ano=2026&mes=8")).isEqualTo(primeira);
+    }
+
+    @Test
+    void resultadoIgualComCasasDecimaisDiferentesContaComoEmpate() throws Exception {
+        participantes(1, 2);
+        bodies.put("/api/motoristas/1", motorista(1, "Ana", "111", "ABC1D23",
+            viagem("2026-08-01", "Santos", "100.0", "0")));
+        bodies.put("/api/motoristas/2", motorista(2, "Bruno", "222", "DEF2E34",
+            viagem("2026-08-01", "Santos", "50.00", "0") + "," + viagem("2026-08-02", "Santos", "50.00", "0.00")));
+        var items = dados("/ranking?ano=2026&mes=8");
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Bruno", "Ana");
+    }
+
+    // --- KOI-149: busca e posição real (CA149-*) ---
+
+    @ParameterizedTest
+    @ValueSource(strings = {"222.222", "2222", "222-22"})
+    void buscaPorTrechoDeCpfEncontraMotorista(String busca) throws Exception {
+        var items = dados("/ranking?ano=2026&mes=8&busca=" + busca);
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Bruno");
+        assertThat(posicoes(items)).containsExactly(2);
+    }
+
+    @Test
+    void buscaPorCpfNaVisaoVeiculosDevolveVeiculoDoMotorista() throws Exception {
+        var items = dados("/ranking?ano=2026&mes=8&tipo=veiculos&busca=444.444.444-44");
+        assertThat(items.findValuesAsText("veiculo")).containsExactly("DEF2E34");
+        assertThat(posicoes(items)).containsExactly(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"12.345.678/0001-90", "12345678000190", "678/0001"})
+    void buscaPorCnpjComOuSemMascara(String busca) throws Exception {
+        bodies.put("/api/motoristas/3", motorista(3, "Clara", "12.345.678/0001-90", null,
+            viagem("2026-08-20", "Santos", "0.00", "10.00")));
+        var items = dados("/ranking?ano=2026&mes=8&busca=" + busca);
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Clara");
+        assertThat(posicoes(items)).containsExactly(4);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abc-1d23", "ABC1D23", "1d2"})
+    void buscaPorPlacaNaVisaoMotoristas(String busca) throws Exception {
+        var items = dados("/ranking?ano=2026&mes=8&busca=" + busca);
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Ana Sá");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"clara", "333.333.333-33"})
+    void ultimoColocadoMantemPosicaoRealNaBusca(String busca) throws Exception {
+        var items = dados("/ranking?ano=2026&mes=8&busca=" + busca);
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Clara");
+        assertThat(posicoes(items)).containsExactly(4);
+    }
+
+    @Test
+    void buscaSoComPontuacaoNaoEncontraNinguem() throws Exception {
+        assertThat(dados("/ranking?ano=2026&mes=8&busca=.-.").size()).isZero();
+    }
+
+    @Test
+    void mensagensDeParametroInvalidoSaoAsDoContrato() throws Exception {
+        assertThat(mensagem(get("/ranking?ano=2026&mes=8&tipo=invalido", gestor())))
+            .isEqualTo("tipo deve ser motoristas ou veiculos.");
+        assertThat(mensagem(get("/ranking?ano=2026&mes=8&busca=" + "a".repeat(151), gestor())))
+            .isEqualTo("A busca deve ter no máximo 150 caracteres.");
+        assertThat(dados("/ranking?ano=2026&mes=8&busca=" + "a".repeat(150)).size()).isZero();
+    }
+
+    // --- Contrato v2: totalParticipantes (A1) e corpo de 401/403 (A2) ---
+
+    @Test
+    void totalParticipantesContaOMesInteiroAntesDaBusca() throws Exception {
+        assertThat(raiz("/ranking?ano=2026&mes=8").path("totalParticipantes").asInt()).isEqualTo(4);
+        var comBusca = raiz("/ranking?ano=2026&mes=8&busca=Bruno");
+        assertThat(comBusca.path("totalParticipantes").asInt()).isEqualTo(4);
+        assertThat(comBusca.path("dados").size()).isEqualTo(1);
+        assertThat(raiz("/ranking?ano=2026&mes=8&busca=inexistente").path("totalParticipantes").asInt()).isEqualTo(4);
+        assertThat(raiz("/ranking?ano=2026&mes=8&tipo=veiculos").path("totalParticipantes").asInt()).isEqualTo(2);
+        bodies.put("/api/dashboard/rentabilidade-media", "{\"porMotorista\":[]}");
+        var vazio = raiz("/ranking?ano=2026&mes=1");
+        assertThat(vazio.path("totalParticipantes").isInt()).isTrue();
+        assertThat(vazio.path("totalParticipantes").asInt()).isZero();
+    }
+
+    @Test
+    void semTokenOuTokenInvalidoDevolveMensagemEmJson() throws Exception {
+        for (String jwt : java.util.Arrays.asList(null, "token-invalido",
+                token("GESTOR", SECRET, "newelog-auth-service", -3600))) {
+            var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/ranking?ano=2026&mes=8");
+            if (jwt != null) request.header("Authorization", "Bearer " + jwt);
+            var response = mvc.perform(request).andReturn().getResponse();
+            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getContentType()).startsWith("application/json");
+            assertThat(response.getHeader("WWW-Authenticate")).startsWith("Bearer");
+            var json = mapper.readTree(response.getContentAsString(StandardCharsets.UTF_8));
+            assertThat(json.path("mensagem").asText()).isEqualTo("Sessão expirada ou token inválido.");
+            assertThat(Instant.parse(json.path("timestamp").asText())).isNotNull();
+        }
+        assertThat(chamadas).isEmpty();
+    }
+
+    @Test
+    void perfilSemPermissaoDevolveMensagemEmJson() throws Exception {
+        var response = get("/ranking?ano=2026&mes=8", token("OPERADOR", SECRET, "newelog-auth-service", 300));
+        assertThat(response.statusCode()).isEqualTo(403);
+        var json = mapper.readTree(response.body());
+        assertThat(json.path("mensagem").asText()).isEqualTo("Você não tem permissão para acessar o ranking.");
+        assertThat(Instant.parse(json.path("timestamp").asText())).isNotNull();
+        assertThat(chamadas).isEmpty();
+    }
+
+    JsonNode raiz(String path) throws Exception {
+        var response = get(path, gestor());
+        assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(200);
+        return mapper.readTree(response.body());
+    }
+
+    String mensagem(Resposta response) throws Exception {
+        assertThat(response.statusCode()).isEqualTo(400);
+        return mapper.readTree(response.body()).path("mensagem").asText();
+    }
+
+    static List<Integer> posicoes(JsonNode items) {
+        return items.findValues("posicao").stream().map(JsonNode::asInt).toList();
+    }
+
     void participantes(long... ids) throws Exception {
         bodies.put("/api/dashboard/rentabilidade-media", mapper.writeValueAsString(Map.of("porMotorista",
             java.util.Arrays.stream(ids).mapToObj(id -> Map.of("id", id)).toList())));
