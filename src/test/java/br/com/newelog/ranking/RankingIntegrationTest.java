@@ -512,6 +512,55 @@ class RankingIntegrationTest {
         }
     }
 
+    // --- Contrato v2: totalParticipantes (A1) e corpo de 401/403 (A2) ---
+
+    @Test
+    void totalParticipantesContaOMesInteiroAntesDaBusca() throws Exception {
+        assertThat(raiz("/ranking?ano=2026&mes=8").path("totalParticipantes").asInt()).isEqualTo(4);
+        var comBusca = raiz("/ranking?ano=2026&mes=8&busca=Bruno");
+        assertThat(comBusca.path("totalParticipantes").asInt()).isEqualTo(4);
+        assertThat(comBusca.path("dados").size()).isEqualTo(1);
+        assertThat(raiz("/ranking?ano=2026&mes=8&busca=inexistente").path("totalParticipantes").asInt()).isEqualTo(4);
+        assertThat(raiz("/ranking?ano=2026&mes=8&tipo=veiculos").path("totalParticipantes").asInt()).isEqualTo(2);
+        bodies.put("/api/dashboard/rentabilidade-media", "{\"porMotorista\":[]}");
+        var vazio = raiz("/ranking?ano=2026&mes=1");
+        assertThat(vazio.path("totalParticipantes").isInt()).isTrue();
+        assertThat(vazio.path("totalParticipantes").asInt()).isZero();
+    }
+
+    @Test
+    void semTokenOuTokenInvalidoDevolveMensagemEmJson() throws Exception {
+        for (String jwt : java.util.Arrays.asList(null, "token-invalido",
+                token("GESTOR", SECRET, "newelog-auth-service", -3600))) {
+            var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/ranking?ano=2026&mes=8");
+            if (jwt != null) request.header("Authorization", "Bearer " + jwt);
+            var response = mvc.perform(request).andReturn().getResponse();
+            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getContentType()).startsWith("application/json");
+            assertThat(response.getHeader("WWW-Authenticate")).startsWith("Bearer");
+            var json = mapper.readTree(response.getContentAsString(StandardCharsets.UTF_8));
+            assertThat(json.path("mensagem").asText()).isEqualTo("Sessão expirada ou token inválido.");
+            assertThat(Instant.parse(json.path("timestamp").asText())).isNotNull();
+        }
+        assertThat(chamadas).isEmpty();
+    }
+
+    @Test
+    void perfilSemPermissaoDevolveMensagemEmJson() throws Exception {
+        var response = get("/ranking?ano=2026&mes=8", token("OPERADOR", SECRET, "newelog-auth-service", 300));
+        assertThat(response.statusCode()).isEqualTo(403);
+        var json = mapper.readTree(response.body());
+        assertThat(json.path("mensagem").asText()).isEqualTo("Você não tem permissão para acessar o ranking.");
+        assertThat(Instant.parse(json.path("timestamp").asText())).isNotNull();
+        assertThat(chamadas).isEmpty();
+    }
+
+    JsonNode raiz(String path) throws Exception {
+        var response = get(path, gestor());
+        assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(200);
+        return mapper.readTree(response.body());
+    }
+
     void participantes(long... ids) throws Exception {
         bodies.put("/api/dashboard/rentabilidade-media", mapper.writeValueAsString(Map.of("porMotorista",
             java.util.Arrays.stream(ids).mapToObj(id -> Map.of("id", id)).toList())));
