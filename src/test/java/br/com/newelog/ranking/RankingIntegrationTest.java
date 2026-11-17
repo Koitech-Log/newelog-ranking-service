@@ -565,6 +565,62 @@ class RankingIntegrationTest {
         assertThat(items.findValuesAsText("motorista")).containsExactly("Bruno", "Ana");
     }
 
+    // --- KOI-149: busca e posição real (CA149-*) ---
+
+    @ParameterizedTest
+    @ValueSource(strings = {"222.222", "2222", "222-22"})
+    void buscaPorTrechoDeCpfEncontraMotorista(String busca) throws Exception {
+        var items = dados("/ranking?ano=2026&mes=8&busca=" + busca);
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Bruno");
+        assertThat(posicoes(items)).containsExactly(2);
+    }
+
+    @Test
+    void buscaPorCpfNaVisaoVeiculosDevolveVeiculoDoMotorista() throws Exception {
+        var items = dados("/ranking?ano=2026&mes=8&tipo=veiculos&busca=444.444.444-44");
+        assertThat(items.findValuesAsText("veiculo")).containsExactly("DEF2E34");
+        assertThat(posicoes(items)).containsExactly(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"12.345.678/0001-90", "12345678000190", "678/0001"})
+    void buscaPorCnpjComOuSemMascara(String busca) throws Exception {
+        bodies.put("/api/motoristas/3", motorista(3, "Clara", "12.345.678/0001-90", null,
+            viagem("2026-08-20", "Santos", "0.00", "10.00")));
+        var items = dados("/ranking?ano=2026&mes=8&busca=" + busca);
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Clara");
+        assertThat(posicoes(items)).containsExactly(4);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abc-1d23", "ABC1D23", "1d2"})
+    void buscaPorPlacaNaVisaoMotoristas(String busca) throws Exception {
+        var items = dados("/ranking?ano=2026&mes=8&busca=" + busca);
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Ana Sá");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"clara", "333.333.333-33"})
+    void ultimoColocadoMantemPosicaoRealNaBusca(String busca) throws Exception {
+        var items = dados("/ranking?ano=2026&mes=8&busca=" + busca);
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Clara");
+        assertThat(posicoes(items)).containsExactly(4);
+    }
+
+    @Test
+    void buscaSoComPontuacaoNaoEncontraNinguem() throws Exception {
+        assertThat(dados("/ranking?ano=2026&mes=8&busca=.-.").size()).isZero();
+    }
+
+    @Test
+    void mensagensDeParametroInvalidoSaoAsDoContrato() throws Exception {
+        assertThat(mensagem(get("/ranking?ano=2026&mes=8&tipo=invalido", gestor())))
+            .isEqualTo("tipo deve ser motoristas ou veiculos.");
+        assertThat(mensagem(get("/ranking?ano=2026&mes=8&busca=" + "a".repeat(151), gestor())))
+            .isEqualTo("A busca deve ter no máximo 150 caracteres.");
+        assertThat(dados("/ranking?ano=2026&mes=8&busca=" + "a".repeat(150)).size()).isZero();
+    }
+
     // --- Contrato v2: totalParticipantes (A1) e corpo de 401/403 (A2) ---
 
     @Test
@@ -612,6 +668,11 @@ class RankingIntegrationTest {
         var response = get(path, gestor());
         assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(200);
         return mapper.readTree(response.body());
+    }
+
+    String mensagem(Resposta response) throws Exception {
+        assertThat(response.statusCode()).isEqualTo(400);
+        return mapper.readTree(response.body()).path("mensagem").asText();
     }
 
     static List<Integer> posicoes(JsonNode items) {
