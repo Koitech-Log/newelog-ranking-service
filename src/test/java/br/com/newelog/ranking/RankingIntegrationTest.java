@@ -512,6 +512,59 @@ class RankingIntegrationTest {
         }
     }
 
+    // --- KOI-148: ordenação e desempate (CA148-*) ---
+
+    @Test
+    void nomeOrdenaSemDiferenciarAcentoNemMaiuscula() throws Exception {
+        participantes(1, 2, 3);
+        String[] nomes = {"bruno", "Álvaro", "Carla"};
+        for (int id = 1; id <= 3; id++) bodies.put("/api/motoristas/" + id,
+            motorista(id, nomes[id - 1], "111", "ABC1D23", viagem("2026-08-01", "Santos", "100", "0")));
+        var items = dados("/ranking?ano=2026&mes=8");
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Álvaro", "bruno", "Carla");
+        assertThat(posicoes(items)).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void visaoVeiculosDesempataPorViagensEDepoisPorPlaca() throws Exception {
+        participantes(1, 2, 3);
+        bodies.put("/api/motoristas/1", motorista(1, "Ana", "111", "ZZZ9Z99",
+            viagem("2026-08-01", "Santos", "100", "0")));
+        bodies.put("/api/motoristas/2", motorista(2, "Bruno", "222", "aaa-1a11",
+            viagem("2026-08-01", "Santos", "100", "0")));
+        bodies.put("/api/motoristas/3", motorista(3, "Clara", "333", "MMM1M11",
+            viagem("2026-08-01", "Santos", "50", "0") + "," + viagem("2026-08-02", "Santos", "50", "0")));
+        var json = raiz("/ranking?ano=2026&mes=8&tipo=veiculos");
+        assertThat(json.path("criterioOrdenacao").asText()).isEqualTo("RESULTADO_FINANCEIRO");
+        assertThat(json.path("tipo").asText()).isEqualTo("veiculos");
+        var items = json.path("dados");
+        assertThat(items.findValuesAsText("veiculo")).containsExactly("MMM1M11", "AAA1A11", "ZZZ9Z99");
+        assertThat(posicoes(items)).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void empateTotalTemPosicoesUnicasEOrdemRepetivel() throws Exception {
+        participantes(5, 3, 1, 4, 2);
+        for (int id = 1; id <= 5; id++) bodies.put("/api/motoristas/" + id,
+            motorista(id, "Mesmo Nome", "111", "ABC1D23", viagem("2026-08-01", "Santos", "100", "0")));
+        var primeira = dados("/ranking?ano=2026&mes=8");
+        assertThat(posicoes(primeira)).containsExactly(1, 2, 3, 4, 5);
+        assertThat(primeira.findValues("motoristaId").stream().map(JsonNode::asInt).toList())
+            .containsExactly(1, 2, 3, 4, 5);
+        assertThat(dados("/ranking?ano=2026&mes=8")).isEqualTo(primeira);
+    }
+
+    @Test
+    void resultadoIgualComCasasDecimaisDiferentesContaComoEmpate() throws Exception {
+        participantes(1, 2);
+        bodies.put("/api/motoristas/1", motorista(1, "Ana", "111", "ABC1D23",
+            viagem("2026-08-01", "Santos", "100.0", "0")));
+        bodies.put("/api/motoristas/2", motorista(2, "Bruno", "222", "DEF2E34",
+            viagem("2026-08-01", "Santos", "50.00", "0") + "," + viagem("2026-08-02", "Santos", "50.00", "0.00")));
+        var items = dados("/ranking?ano=2026&mes=8");
+        assertThat(items.findValuesAsText("motorista")).containsExactly("Bruno", "Ana");
+    }
+
     // --- Contrato v2: totalParticipantes (A1) e corpo de 401/403 (A2) ---
 
     @Test
@@ -559,6 +612,10 @@ class RankingIntegrationTest {
         var response = get(path, gestor());
         assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(200);
         return mapper.readTree(response.body());
+    }
+
+    static List<Integer> posicoes(JsonNode items) {
+        return items.findValues("posicao").stream().map(JsonNode::asInt).toList();
     }
 
     void participantes(long... ids) throws Exception {
