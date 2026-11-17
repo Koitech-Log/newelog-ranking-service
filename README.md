@@ -26,16 +26,19 @@ Alias: /api/ranking. Authorization: Bearer JWT do auth-service, somente GESTOR.
 - ano: 1–9999; mes: 1–12; obrigatórios.
 - tipo: motoristas (padrão) ou veiculos.
 - busca opcional: nome ou CPF com/sem formatação; também aceita placa.
-- Resposta: ano, mes, tipo, criterioOrdenacao e dados.
+- Resposta: ano, mes, tipo, criterioOrdenacao, totalParticipantes e dados.
+- totalParticipantes: quantidade de participantes do mês/tipo ANTES da busca (0 em mês sem viagens).
 - Cada item: posicao, motoristaId, motorista, veiculo, quantidadeViagens,
   freteTotal, custoTotal, resultado, distanciaKm e destinos.
 - Na visão de veículos, motoristaId e motorista são nulos; veiculo identifica a placa.
 - resultado = soma dos fretes menos soma dos pedágios.
-- Ordem inicial por resultado decrescente, viagens decrescentes, nome/placa e ID.
+- Ordem inicial por resultado decrescente, viagens decrescentes, nome/placa (sem diferenciar
+  acento nem maiúscula) e ID. Empate não divide posição: as posições são únicas, 1..N.
 - A posição é definida ANTES da busca e não muda quando se filtra.
 - Mês sem viagens e busca sem resultado retornam dados: [] (HTTP 200).
 - Participantes sem viagens no mês não entram; viagens sem placa não geram veículo fictício.
 - 400: parâmetros inválidos. 401/403: autenticação/permissão.
+- Erros 400, 401, 403, 502 e 503 têm corpo JSON { "timestamp", "mensagem" } em português.
 - 502: erro ou resposta inválida do serviço de motoristas. 503: falha de conexão/timeout.
 - Uma falha em qualquer detalhe interrompe a resposta inteira; não é devolvido ranking parcial.
 
