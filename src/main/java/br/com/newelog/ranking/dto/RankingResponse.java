@@ -7,5 +7,5 @@ public record RankingResponse(int ano, int mes, String tipo, String criterioOrde
                               int totalParticipantes, List<Item> dados) {
     public record Item(int posicao, Long motoristaId, String motorista, String veiculo,
                        long quantidadeViagens, BigDecimal freteTotal, BigDecimal custoTotal,
-                       BigDecimal resultado, BigDecimal distanciaKm, List<String> destinos) {}
+                       BigDecimal resultado, BigDecimal distanciaKm, List<String> destinos, BigDecimal pontuacao) {}
 }
