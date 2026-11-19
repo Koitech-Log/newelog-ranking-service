@@ -15,11 +15,20 @@ import org.springframework.web.server.ResponseStatusException;
 import br.com.newelog.ranking.client.MotoristasClient;
 import br.com.newelog.ranking.dto.RankingResponse;
 import br.com.newelog.ranking.dto.RankingResponse.Item;
+import br.com.newelog.ranking.client.MotoristasClient.Viagem;
 
 @Service
 public class RankingService {
     private final MotoristasClient client;
-    public RankingService(MotoristasClient client) { this.client = client; }
+    private final PontuacaoRankingService pontuacaoService;
+
+    public RankingService(
+            MotoristasClient client,
+            PontuacaoRankingService pontuacaoService
+    ) {
+    this.client = client;
+    this.pontuacaoService = pontuacaoService;
+    }
 
     public RankingResponse consultar(int ano, int mes, String tipo, String busca, String authorization) {
         if (ano < 1 || ano > 9999 || mes < 1 || mes > 12)
@@ -50,14 +59,19 @@ public class RankingService {
                 g.viagens++;
                 g.frete = g.frete.add(v.valorFrete());
                 g.custo = g.custo.add(v.valorPedagio());
+                g.viagensDoMes.add(v);
                 if (v.destino() != null && !v.destino().isBlank()) g.destinos.add(v.destino());
             }
         }
 
-        // Ordem inicial da KOI-148: resultado financeiro. A KOI-153 integrará a pontuação.
+        // Calcula a pontuação após reunir todas as viagens do mês de cada grupo.
+        for (var g : grupos.values()) {
+            g.pontuacao = pontuacaoService.calcular(g.viagensDoMes);
+        }
+        // KOI-153: ordena pela pontuação calculada.
         // Desempate estável evita posições aleatórias entre chamadas.
         var ordenados = new ArrayList<>(grupos.values());
-        ordenados.sort(Comparator.comparing(Grupo::resultado).reversed()
+        ordenados.sort(Comparator.comparing((Grupo g) -> g.pontuacao).reversed()
             .thenComparing(Comparator.comparingLong((Grupo g) -> g.viagens).reversed())
             .thenComparing(g -> normalizar(g.nome != null ? g.nome : g.veiculo))
             .thenComparing(g -> g.id == null ? 0L : g.id));
@@ -73,10 +87,10 @@ public class RankingService {
                 || (!documento.isEmpty() && busca.trim().matches("[0-9. /-]+")
                     && g.documentos.stream().anyMatch(d -> d.contains(documento)));
             if (encontrou) items.add(new Item(i + 1, g.id, g.nome, g.veiculo, g.viagens,
-                g.frete, g.custo, g.resultado(), null, List.copyOf(g.destinos)));
+                g.frete, g.custo, g.resultado(), null, List.copyOf(g.destinos), g.pontuacao));
         }
         // totalParticipantes conta o mês/tipo inteiro, antes da busca.
-        return new RankingResponse(ano, mes, tipo, "RESULTADO_FINANCEIRO", ordenados.size(), List.copyOf(items));
+        return new RankingResponse(ano, mes, tipo, "PONTUACAO", ordenados.size(), List.copyOf(items));
     }
 
     private static String normalizar(String s) {
@@ -89,8 +103,12 @@ public class RankingService {
         final Long id;
         final String nome, veiculo;
         final TreeSet<String> nomes = new TreeSet<>(), documentos = new TreeSet<>(), destinos = new TreeSet<>();
+        
+        final List<Viagem> viagensDoMes = new ArrayList<>();
+        
         long viagens;
         BigDecimal frete = BigDecimal.ZERO, custo = BigDecimal.ZERO;
+        BigDecimal pontuacao = new BigDecimal("0.00");
         Grupo(Long id, String nome, String veiculo) { this.id = id; this.nome = nome; this.veiculo = veiculo; }
         BigDecimal resultado() { return frete.subtract(custo); }
     }

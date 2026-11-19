@@ -111,7 +111,7 @@ class RankingIntegrationTest {
         var json = mapper.readTree(response.body());
         var items = json.path("dados");
         assertThat(items.size()).isEqualTo(4);
-        assertThat(json.path("criterioOrdenacao").asText()).isEqualTo("RESULTADO_FINANCEIRO");
+        assertThat(json.path("criterioOrdenacao").asText()).isEqualTo("PONTUACAO");
         assertThat(items.get(0).path("motorista").asText()).isEqualTo("Ana Sá");
         assertThat(items.get(0).path("resultado").decimalValue()).isEqualByComparingTo("900.00");
         assertThat(items.get(0).path("quantidadeViagens").asInt()).isEqualTo(1);
@@ -535,7 +535,7 @@ class RankingIntegrationTest {
         bodies.put("/api/motoristas/3", motorista(3, "Clara", "333", "MMM1M11",
             viagem("2026-08-01", "Santos", "50", "0") + "," + viagem("2026-08-02", "Santos", "50", "0")));
         var json = raiz("/ranking?ano=2026&mes=8&tipo=veiculos");
-        assertThat(json.path("criterioOrdenacao").asText()).isEqualTo("RESULTADO_FINANCEIRO");
+        assertThat(json.path("criterioOrdenacao").asText()).isEqualTo("PONTUACAO");
         assertThat(json.path("tipo").asText()).isEqualTo("veiculos");
         var items = json.path("dados");
         assertThat(items.findValuesAsText("veiculo")).containsExactly("MMM1M11", "AAA1A11", "ZZZ9Z99");
