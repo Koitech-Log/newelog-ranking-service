@@ -78,10 +78,13 @@ Não altera dados nem regras de importação/duplicidade de nenhum serviço.
 Calculada por participante (motorista ou placa) com as viagens do mês:
 
 1. Valor de cada viagem = frete − pedágio.
-2. Valorização SP (KOI-158): se o destino da viagem for exatamente "São Paulo" (sem
-   diferenciar acento, maiúscula nem espaços nas pontas), o valor é multiplicado por
-   RANKING_FATOR_SP e arredondado a 2 casas. Listas de cidades ("São Paulo, Cotia"),
-   destinos resumidos e "Não informado" não recebem o fator.
+2. Valorização SP (KOI-158): o destino pode ser uma cidade ou uma lista separada por
+   vírgula. Se QUALQUER cidade da lista for exatamente "São Paulo" (sem diferenciar acento,
+   maiúscula nem espaços), o valor é multiplicado por RANKING_FATOR_SP uma vez e
+   arredondado a 2 casas. Exemplos que recebem o fator: "São Paulo", "São Paulo, Cotia",
+   "Guarulhos, São Paulo, Diadema". Não recebem: "Paulo Afonso", "São Paulo do Potengi",
+   "São Paulo das Missões", "Não informado". Destino resumido pelo manifesto-service
+   (termina em "…"): a última cidade pode estar cortada e não conta; as anteriores contam.
 3. Limite de viagens (KOI-157): contam só as RANKING_MAX_VIAGENS viagens de maior valor
    já valorizado; as demais são ignoradas na pontuação.
 4. pontuacao = soma dos valores que contam (0.00 sem viagens).

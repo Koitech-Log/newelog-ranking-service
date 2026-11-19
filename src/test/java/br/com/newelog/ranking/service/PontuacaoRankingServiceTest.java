@@ -315,4 +315,15 @@ class PontuacaoRankingServiceTest {
         assertThat(resposta.totalParticipantes()).isZero();
         assertThat(resposta.dados()).isEmpty();
     }
+
+    @Test
+    void listaDeCidadesComSaoPauloEValorizadaNaPontuacao() {
+        var servico = criarPontuacao(20);
+
+        // (100 - 0) * 1.20 = 120 + Paulo Afonso sem fator = 100
+        assertThat(servico.calcular(List.of(
+                viagem("2026-04-01", "Guarulhos, São Paulo, Diadema", "100", "0"),
+                viagem("2026-04-02", "Paulo Afonso", "100", "0"))))
+            .isEqualByComparingTo("220.00");
+    }
 }
